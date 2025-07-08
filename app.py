@@ -16,7 +16,7 @@ def upstox_main():
     global latest_ltp
 
     configuration = upstox_client.Configuration()
-    configuration.access_token = 'UPSTOX_TOKEN'  # Replace with your actual access token
+    configuration.access_token = 'eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI0S0FaUlEiLCJqdGkiOiI2ODZjZGM2ZDViOTIzYTJlZmEwNWYxOTgiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc1MTk2NDc4MSwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzUyMDEyMDAwfQ.eNFdyFbLsuSmpbQ9Z5ro03XEdKpbfFnFxL07PAU5ee4'  # Replace with your actual access token
 
     try:
         api_client = upstox_client.ApiClient(configuration)
