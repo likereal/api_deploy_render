@@ -3,20 +3,24 @@ from upstox_client.rest import ApiException
 import time
 import threading
 import logging
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
+import csv
+import sqlite3
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-latest_ltp = None
+latest_ltps = {}  # Store LTPs for multiple symbols
+subscribed_symbols = set()  # Track currently subscribed symbols
 ltp_lock = threading.Lock()
+streamer = None  # Will hold the MarketDataStreamerV3 instance
+
 
 def upstox_main():
-    global latest_ltp
-
+    global streamer
     configuration = upstox_client.Configuration()
-    configuration.access_token = 'eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI0S0FaUlEiLCJqdGkiOiI2ODZjZGM2ZDViOTIzYTJlZmEwNWYxOTgiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc1MTk2NDc4MSwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzUyMDEyMDAwfQ.eNFdyFbLsuSmpbQ9Z5ro03XEdKpbfFnFxL07PAU5ee4'  # Replace with your actual access token
+    configuration.access_token = 'eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI0S0FaUlEiLCJqdGkiOiI2ODZkNzJiNjhlYzdhMTUzOWY1NWEzOWYiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc1MjAwMzI1NCwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzUyMDEyMDAwfQ.sR5IVzjyFCHAnxL_RnhNhpLzgsJsdnU-YD7EsuOhbr8'  # Replace with your actual access token
 
     try:
         api_client = upstox_client.ApiClient(configuration)
@@ -27,29 +31,26 @@ def upstox_main():
 
     def on_open():
         logger.info("Connected to WebSocket")
-        try:
-            streamer.subscribe(["NSE_EQ|INE155A01022"], "full")
-            logger.info("Subscribed to Tata Motors market data")
-        except Exception as e:
-            logger.error(f"Subscription error: {e}")
+        # No initial subscriptions; subscribe on demand
 
     def on_message(message):
-        global latest_ltp
+        global latest_ltps
         try:
             with ltp_lock:
-                if 'feeds' in message and 'NSE_EQ|INE155A01022' in message['feeds']:
-                    feed = message['feeds']['NSE_EQ|INE155A01022']
-                    logger.info(f"Feed data: {feed}")
-                    # Updated extraction for new structure
-                    if 'fullFeed' in feed and 'marketFF' in feed['fullFeed']:
-                        ltpc = feed['fullFeed']['marketFF'].get('ltpc', {})
-                        latest_ltp = ltpc.get('ltp', None)
-                        if latest_ltp:
-                            logger.debug(f"Received LTP: {latest_ltp}")
-                    else:
-                        logger.error(f"'fullFeed' or 'marketFF' not in feed: {feed}")
+                if 'feeds' in message:
+                    for symbol in message['feeds']:
+                        feed = message['feeds'][symbol]
+                        logger.info(f"Feed data for {symbol}: {feed}")
+                        if 'fullFeed' in feed and 'marketFF' in feed['fullFeed']:
+                            ltpc = feed['fullFeed']['marketFF'].get('ltpc', {})
+                            ltp = ltpc.get('ltp', None)
+                            if ltp is not None:
+                                latest_ltps[symbol] = ltp
+                                logger.debug(f"Received LTP for {symbol}: {ltp}")
+                        else:
+                            logger.error(f"'fullFeed' or 'marketFF' not in feed: {feed}")
                 else:
-                    logger.error(f"'feeds' or symbol not in message: {message}")
+                    logger.error(f"'feeds' not in message: {message}")
         except Exception as e:
             logger.error(f"Error processing message: {e}")
 
@@ -85,11 +86,72 @@ def upstox_main():
 # Flask app
 app = Flask(__name__)
 
+def subscribe_symbol(symbol):
+    global streamer
+    with ltp_lock:
+        if symbol not in subscribed_symbols and streamer is not None:
+            try:
+                streamer.subscribe([symbol], "full")
+                subscribed_symbols.add(symbol)
+                logger.info(f"Subscribed to symbol: {symbol}")
+            except Exception as e:
+                logger.error(f"Failed to subscribe to {symbol}: {e}")
+
+def csv_to_sqlite(csv_path, db_path):
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS bse_securities (scrip_code TEXT, name TEXT, security_id TEXT)')
+    with open(csv_path, newline='', encoding='utf-8') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            c.execute('INSERT INTO bse_securities (scrip_code, name, security_id) VALUES (?, ?, ?)', (row['SCRIP_CODE'], row['NAME'], row['Security_Id']))
+    conn.commit()
+    conn.close()
+
+# Run this once to create the DB
+# csv_to_sqlite('Equity.csv', 'bse_securities.db')
+
+def nl2sql_stock_name(nl_query, db_path='bse_securities.db'):
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    # Normalize input for better matching
+    search = nl_query.replace(' ', '').lower()
+    # Try exact match on name
+    c.execute("SELECT scrip_code, name, security_id FROM bse_securities WHERE REPLACE(LOWER(name), ' ', '') = ?", (search,))
+    result = c.fetchone()
+    if not result:
+        # Try exact match on security_id
+        c.execute("SELECT scrip_code, name, security_id FROM bse_securities WHERE LOWER(security_id) = ?", (nl_query.lower(),))
+        result = c.fetchone()
+    if not result:
+        # Try partial match on name
+        c.execute("SELECT scrip_code, name, security_id FROM bse_securities WHERE LOWER(name) LIKE ?", (f"%{nl_query.lower()}%",))
+        result = c.fetchone()
+    if not result:
+        # Try partial match on security_id
+        c.execute("SELECT scrip_code, name, security_id FROM bse_securities WHERE LOWER(security_id) LIKE ?", (f"%{nl_query.lower()}%",))
+        result = c.fetchone()
+    conn.close()
+    return result  # (scrip_code, name, security_id) or None
+
 @app.route('/ltp')
 def get_ltp():
-    global latest_ltp
+    nl = request.args.get('nl')
+    symbol = request.args.get('symbol')
+    if nl:
+        result = nl2sql_stock_name(nl)
+        if not result:
+            return jsonify({'error': f'No BSE stock found for query: {nl}'}), 404
+        scrip_code, name, security_id = result
+        symbol = f'BSE_EQ|{scrip_code}'
+    if not symbol:
+        return jsonify({'error': 'Missing symbol or nl parameter'}), 400
+    subscribe_symbol(symbol)
     with ltp_lock:
-        return jsonify({'ltp': latest_ltp})
+        ltp = latest_ltps.get(symbol)
+    if ltp is None:
+        return jsonify({'ltp': None, 'message': 'LTP not available yet, please retry in a moment.'}), 202
+    return jsonify({'ltp': ltp})
 
 if __name__ == "__main__":
     threading.Thread(target=upstox_main, daemon=True).start()
