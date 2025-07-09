@@ -20,7 +20,7 @@ streamer = None  # Will hold the MarketDataStreamerV3 instance
 def upstox_main():
     global streamer
     configuration = upstox_client.Configuration()
-    configuration.access_token = 'eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI0S0FaUlEiLCJqdGkiOiI2ODZkNzJiNjhlYzdhMTUzOWY1NWEzOWYiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc1MjAwMzI1NCwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzUyMDEyMDAwfQ.sR5IVzjyFCHAnxL_RnhNhpLzgsJsdnU-YD7EsuOhbr8'  # Replace with your actual access token
+    configuration.access_token = 'eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI0S0FaUlEiLCJqdGkiOiI2ODZkZmIzNmM5ZGE4MDYyOTE2YzgwNjEiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc1MjAzODE5OCwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzUyMDk4NDAwfQ.gGEsndmyM8VROHdtIEf0EfEZlAk3y3zXds84FWpwZQs'  # Replace with your actual access token
 
     try:
         api_client = upstox_client.ApiClient(configuration)
